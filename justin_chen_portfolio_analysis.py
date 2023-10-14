@@ -74,14 +74,15 @@ class PortfolioAnalysis:
         '''
         self.excel_dfs:dict = pd.read_excel(excel_path, sheet_name=None)       # None loads all worksheets as a dict
         self.excel_dfs:dict = dict(sorted(self.excel_dfs.items()))             # Sort the dictionary
-        #self.clean_data(export_clean_data)
-        self.clean_data(False)
 
         # We sorted the dictionary by date so these should also be sorted
         '''
         All the dates in the portfolio, along with their string forms
         '''
         self.portfolioDates = list(map(lambda date_str: [datetime.strptime(date_str, "%Y-%m-%d"), date_str], self.excel_dfs.keys()))
+
+        #self.clean_data(export_clean_data)
+        self.clean_data(export_clean_data)
 
         self.asset_value()
         self.unrealized_returns()
@@ -128,7 +129,7 @@ class PortfolioAnalysis:
                         start_time = end_time - timedelta(days=5)
 
                         # We only need to take the most recent one
-                        dl_data = yf.download(tickers=row["Stock"], start=start_time, end=end_time).iloc[-1]
+                        dl_data = yf.download(tickers=row["Stock"], start=start_time, end=end_time, progress=True).iloc[-1]
                         self.excel_dfs[key].loc[index, "MarketPrice"] = dl_data["Adj Close"]
                         
                     except:
@@ -147,12 +148,13 @@ class PortfolioAnalysis:
                 if not(isnan(row["UnitCost"])):
                     unit_cost[row["Stock"]] = row["UnitCost"]
 
-        # ⭐ If a stock does not have a UnitCost, use the 1st MarketPrice we have
+        # ⭐ If a stock does not have a UnitCost, use the MarketPrice of the stock we found at the start of the month (basically, startDate - 1 month + 1 day - and first available value from there)
         for stock_ticker in unit_cost:
-            for key in self.excel_dfs.keys():
-                if unit_cost[stock_ticker] == -1:   # if we found the marketprice, stop.
-                    filtered_row = self.excel_dfs[key].query(f"Stock == '{stock_ticker}'")
-                    unit_cost[stock_ticker] = filtered_row["MarketPrice"]
+            if unit_cost[stock_ticker] == -1:
+                yf_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1) + relativedelta(days=1), end=self.portfolioDates[0][0] - relativedelta(months=1) + relativedelta(days=7), progress=True)
+                yf_data = yf_data.iloc[0]["Adj Close"]
+
+                unit_cost[stock_ticker] = yf_data
 
         # ⭐ Loop back into the dataframe and fill in the missing UnitCosts
         for key in self.excel_dfs.keys(): # For each sheet
@@ -256,7 +258,7 @@ class PortfolioAnalysis:
 
         # Loop through all the stocks we have on hand
         for stock_ticker in self.all_stocks:
-            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1), end=self.portfolioDates[-1][0])["Adj Close"]
+            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1), end=self.portfolioDates[-1][0], progress=True)["Adj Close"]
             self.total_stock_values[stock_ticker] = stock_data
         self.total_stock_values = self.total_stock_values
         
