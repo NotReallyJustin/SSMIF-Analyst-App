@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 import yfinance as yf
 import os
 import re
@@ -88,7 +89,6 @@ class PortfolioAnalysis:
         self.portfolio_value_over_time()
 
         self.calculate_liquidity()
-        self.plot_liquidity()
 
     def clean_data(self, export:bool):
         '''
@@ -233,24 +233,20 @@ class PortfolioAnalysis:
 
     def nearest_portfolio_date(self, comp_date:datetime):
         '''
-        Returns the last date the equity portfolio was updated that's before comp_date
+        Returns the first date the equity portfolio was updated that's after comp_date
         @param comp_date The date to "trace back" from
         '''
-        result = None           # note to self: None == null
 
-        for equity_date, equity_str in self.portfolioDates:
-            if equity_date <= comp_date:
-                result = equity_str
-            else:
-                break
-        
-        return result
+        for equity_date, equity_str in self.portfolioDates: # This is sorted
+            if equity_date >= comp_date:
+                return equity_str
+    
 
     def portfolio_value_over_time(self):
         '''
         Generates the portfolio value of all given stocks over the time period in a df.
         ❗Requires that the current data is cleaned + asset_df is generated before running this
-        ❗This inherits the start and end dates of our stock portfolio - because we assume we don't have any positions outside those times
+        ❗This assumes the monthly equity holdings hold for the entire month (ie. 9/30 holdings are true for entire month of September)
         '''
         
         '''
@@ -260,7 +256,7 @@ class PortfolioAnalysis:
 
         # Loop through all the stocks we have on hand
         for stock_ticker in self.all_stocks:
-            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0], end=self.portfolioDates[-1][0])["Adj Close"]
+            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1), end=self.portfolioDates[-1][0])["Adj Close"]
             self.total_stock_values[stock_ticker] = stock_data
         self.total_stock_values = self.total_stock_values
         
@@ -353,7 +349,7 @@ class PortfolioAnalysis:
 
 if __name__ == "__main__":  # Do not change anything here - this is how we will test your class as well.
     fake_port = PortfolioAnalysis("dummy_data.xlsx")
-    # print(fake_port.asset_values)
-    # print(fake_port.unrealized_pnl)
-    # fake_port.plot_portfolio()
-    # fake_port.plot_liquidity()
+    print(fake_port.asset_values)
+    print(fake_port.unrealized_pnl)
+    fake_port.plot_portfolio()
+    fake_port.plot_liquidity()
