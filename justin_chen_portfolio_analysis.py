@@ -76,8 +76,19 @@ class PortfolioAnalysis:
         #self.clean_data(export_clean_data)
         self.clean_data(False)
 
+        # We sorted the dictionary by date so these should also be sorted
+        '''
+        All the dates in the portfolio, along with their string forms
+        '''
+        self.portfolioDates = list(map(lambda date_str: [datetime.strptime(date_str, "%Y-%m-%d"), date_str], self.excel_dfs.keys()))
+
         self.asset_value()
         self.unrealized_returns()
+
+        self.portfolio_value_over_time()
+
+        self.calculate_liquidity()
+        self.plot_liquidity()
 
     def clean_data(self, export:bool):
         '''
@@ -191,6 +202,12 @@ class PortfolioAnalysis:
         asset_df.loc["Net Asset Value", :] = asset_df.sum()
         self.asset_values = asset_df
 
+        # Meanwhile to save time down the road, create a list of all the stocks we have (ever)
+        '''
+        List of all stocks we have in portfolio (ever)
+        '''
+        self.all_stocks = asset_df.index.tolist()[0: len(asset_df.index.tolist()) - 1]
+
     def unrealized_returns(self):
         '''
         Calculates the unrealized returns of each stock and exports it as a dataframe.
@@ -211,8 +228,127 @@ class PortfolioAnalysis:
         
         ureturns_df = ureturns_df.fillna(0)      # If no position, its value is 0
 
-        print(ureturns_df)
+        # print(ureturns_df)
         self.unrealized_pnl = ureturns_df
+
+    def nearest_portfolio_date(self, comp_date:datetime):
+        '''
+        Returns the last date the equity portfolio was updated that's before comp_date
+        @param comp_date The date to "trace back" from
+        '''
+        result = None           # note to self: None == null
+
+        for equity_date, equity_str in self.portfolioDates:
+            if equity_date <= comp_date:
+                result = equity_str
+            else:
+                break
+        
+        return result
+
+    def portfolio_value_over_time(self):
+        '''
+        Generates the portfolio value of all given stocks over the time period in a df.
+        ❗Requires that the current data is cleaned + asset_df is generated before running this
+        ❗This inherits the start and end dates of our stock portfolio - because we assume we don't have any positions outside those times
+        '''
+        
+        '''
+        The total values of all the stocks we have on hand
+        '''
+        self.total_stock_values = pd.DataFrame()
+
+        # Loop through all the stocks we have on hand
+        for stock_ticker in self.all_stocks:
+            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0], end=self.portfolioDates[-1][0])["Adj Close"]
+            self.total_stock_values[stock_ticker] = stock_data
+        self.total_stock_values = self.total_stock_values
+        
+        # ❗ Now, use these stocks to calculate portfolio value over time
+        '''
+        The total value of the portfolio over time
+        '''
+        self.total_portfolio_values = pd.Series()
+
+        # Writing a for loop to do this instead of pandas because it's too complicated for it
+        # Basically multiplies every stock value we have here by quantity in last month's equity portfolio (results stored in self.total_stock_equity)
+        # Then, we sum it up.
+        self.total_stock_equity = pd.DataFrame(index=self.total_stock_values.index, columns=self.total_stock_values.columns)
+
+        for date, row in self.total_stock_values.iterrows():
+            
+            # Find the closest equity data to the given date
+            nearest_portfolio = self.excel_dfs[self.nearest_portfolio_date(date)]
+
+            for stock in self.total_stock_values.columns:
+                # Row we actually need to use
+                filtered_row = nearest_portfolio.query(f"Stock == '{stock}'")
+
+                if stock == "Cash":     # Not to be confused with $CASH
+                    self.total_stock_equity.loc[date, stock] = filtered_row["Quantity"].values[0]
+                else:
+                    # No holding
+                    if filtered_row.empty:
+                        self.total_stock_equity.loc[date, stock] = 0
+                    else: # Has holding
+                        self.total_stock_equity.loc[date, stock] = (row[stock] * filtered_row["Quantity"]).values[0]
+
+        # Iterate through all days and fill in missing gaps with bfill
+        start_date = self.portfolioDates[0][0]
+        end_date = self.portfolioDates[-1][0]
+
+        # Iterate through all days from start to end. 
+        current_date = start_date
+        while current_date <= end_date:
+            if not(current_date in self.total_stock_equity.index):
+                self.total_stock_equity.loc[current_date] = np.nan
+            
+            current_date += timedelta(days=1)
+
+        self.total_stock_equity = self.total_stock_equity.sort_index()
+
+        # Chose ffill since we're going to use last adj price
+        # Technically our stock prices don't change until market reopens
+        self.total_stock_equity = self.total_stock_equity.fillna(method="ffill")  
+        #print(self.total_stock_equity)
+
+        # For total portfolio values, sum the stock equities
+        # Cash is counted in here but that's fine since XLSX has it as qty 1
+        self.total_portfolio_values = self.total_stock_equity.sum(axis=1)
+        
+        
+    def plot_portfolio(self):
+        '''
+        Builds a plot of the portfolio's value over time, from the start to end of stock portfolio
+        Call after everything else ran
+        '''
+
+        plt.figure(figsize=(15,5))
+        plt.plot(self.total_portfolio_values)
+        plt.title("Portfolio Value")
+        plt.xlabel('Date')
+        plt.ylabel('Value')
+        plt.show()
+
+    def calculate_liquidity(self):
+        '''
+        Calculates the liquidity of the portfolio
+        '''
+        self.liquidity = self.total_stock_equity["Cash"].divide(self.total_portfolio_values)
+
+    def plot_liquidity(self):
+        '''
+        Create a method called `plot_liquidity` that builds a plot of the ratio between the cash on
+        hand and the portfolio's total value, from the end of June to the end of September
+        '''
+
+        # According to investopedia, cash counts towards a portfolio's total value, so we'll keep that there
+        plt.figure(figsize=(15,5))
+        plt.plot(self.liquidity, color="#ffcc00")
+        plt.title("Portfolio Liquidity")
+        plt.xlabel('Date')
+        plt.ylabel('Liquidity')
+        plt.show()
 
 
 if __name__ == "__main__":  # Do not change anything here - this is how we will test your class as well.
