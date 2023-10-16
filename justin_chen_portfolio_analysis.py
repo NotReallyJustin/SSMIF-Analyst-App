@@ -5,11 +5,24 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
 import yfinance as yf
-import os
-import re
-from math import isnan
+
+def subtract_one_month(t):
+    """
+    Return a `datetime` that is `t` minus one month.
+    """
+
+    one_day = timedelta(days=1)
+    twenty_eight_days = timedelta(days=27)
+    one_month_earlier = t - one_day
+
+    while one_month_earlier.month == t.month or one_month_earlier.day > t.day:
+        if (one_month_earlier.day >= 28):
+            one_month_earlier -= twenty_eight_days
+        else:
+            one_month_earlier -= one_day
+
+    return one_month_earlier
 
 class PortfolioAnalysis:
     """
@@ -47,6 +60,8 @@ class PortfolioAnalysis:
     Create a method called `plot_liquidity` that builds a plot of the ratio between the cash on
     hand and the portfolio's total value, from the end of June to the end of September
     """
+    
+    from datetime import datetime, timedelta
 
     def __init__(self, excel_path:str, export_clean_data:bool=True):
         '''
@@ -56,11 +71,6 @@ class PortfolioAnalysis:
         @param excel_path The path to the excel file
         @param export_clean_data Whether Whether or not to export the cleaned data. `True` by default.
         '''
-
-        # Just a paranoid error checking thing because I might use this library down the line - make sure the excel file exists
-        assert os.path.exists(excel_path), 'The excel_path entered does not exist'
-        assert os.path.isfile(excel_path), 'The path provided is not a file'
-        assert os.path.splitext(excel_path)[-1].lower() == ".xlsx", 'The path provided is not an excel file'
 
         # Mistake learned, we're not rewriting Pandas this year
 
@@ -109,7 +119,7 @@ class PortfolioAnalysis:
             # Step 1: Clean Data
             for to_convert_cols in self.NUMERIC_COLS:
                 # First, get rid of the chars we can choose to ignore. 
-                self.excel_dfs[key][to_convert_cols] = self.excel_dfs[key][to_convert_cols].map(lambda item : re.sub(IGNORE_CHARS, "", item) if isinstance(item, str) else item)
+                self.excel_dfs[key][to_convert_cols] = self.excel_dfs[key][to_convert_cols].map(lambda item : item.replace(IGNORE_CHARS, "") if isinstance(item, str) else item)
                 # Then, convert to numbers
                 self.excel_dfs[key][to_convert_cols] = pd.to_numeric(self.excel_dfs[key][to_convert_cols], errors='coerce')
 
@@ -119,7 +129,7 @@ class PortfolioAnalysis:
             for index, row in self.excel_dfs[key].iterrows():
 
                 # Feels a bit redundant, but this saves a lot of runtime with you not having to constantly fetch yfinance data
-                if isnan(row["MarketPrice"]):
+                if pd.isna(row["MarketPrice"]):
                     try:
                         # 🚨 Sometimes, we might not have a trading day. What we will do is download data for the past 5 days and take
                         # the most recent of them
@@ -145,13 +155,13 @@ class PortfolioAnalysis:
                     unit_cost[row["Stock"]] = -1        # Unit costs can never be -1 so this is a placeholder
 
                 # Try to find a unit cost value
-                if not(isnan(row["UnitCost"])):
+                if not(pd.isna(row["UnitCost"])):
                     unit_cost[row["Stock"]] = row["UnitCost"]
 
         # ⭐ If a stock does not have a UnitCost, use the MarketPrice of the stock we found at the start of the month (basically, startDate - 1 month + 1 day - and first available value from there)
         for stock_ticker in unit_cost:
             if unit_cost[stock_ticker] == -1:
-                yf_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1) + relativedelta(days=1), end=self.portfolioDates[0][0] - relativedelta(months=1) + relativedelta(days=7), progress=True)
+                yf_data = yf.download(stock_ticker, start=subtract_one_month(self.portfolioDates[0][0]) + timedelta(days=1), end=subtract_one_month(self.portfolioDates[0][0]) + timedelta(days=7), progress=True)
                 yf_data = yf_data.iloc[0]["Adj Close"]
 
                 unit_cost[stock_ticker] = yf_data
@@ -159,7 +169,7 @@ class PortfolioAnalysis:
         # ⭐ Loop back into the dataframe and fill in the missing UnitCosts
         for key in self.excel_dfs.keys(): # For each sheet
             for index, row in self.excel_dfs[key].iterrows():
-                if isnan(row["UnitCost"]):
+                if pd.isna(row["UnitCost"]):
                     self.excel_dfs[key].loc[index, "UnitCost"] = unit_cost[row["Stock"]]
 
             # If needed, print dfs here
@@ -258,7 +268,7 @@ class PortfolioAnalysis:
 
         # Loop through all the stocks we have on hand
         for stock_ticker in self.all_stocks:
-            stock_data = yf.download(stock_ticker, start=self.portfolioDates[0][0] - relativedelta(months=1), end=self.portfolioDates[-1][0], progress=True)["Adj Close"]
+            stock_data = yf.download(stock_ticker, start=subtract_one_month(self.portfolioDates[0][0]), end=self.portfolioDates[-1][0], progress=True)["Adj Close"]
             self.total_stock_values[stock_ticker] = stock_data
         self.total_stock_values = self.total_stock_values
         
