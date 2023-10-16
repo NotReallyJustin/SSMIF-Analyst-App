@@ -236,7 +236,8 @@ class PortfolioAnalysis:
 
         for sheet_date, sheet in self.excel_dfs.items():
             for index, row in sheet.iterrows():
-                ureturns_df.loc[row["Stock"], sheet_date] = (row["MarketPrice"] - row["UnitCost"]) * row["Quantity"]
+                if row["Stock"] == "cash" or row["Stock"] == "Cash":
+                    ureturns_df.loc[row["Stock"], sheet_date] = (row["MarketPrice"] - row["UnitCost"]) * row["Quantity"]
         
         ureturns_df = ureturns_df.fillna(0)      # If no position, its value is 0
 
